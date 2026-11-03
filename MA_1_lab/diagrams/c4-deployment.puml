@@ -11,7 +11,7 @@ Deployment_Node(cdn, "Объектное хранилище и CDN", "внешн
 
 Deployment_Node(k8s, "Kubernetes", "один кластер, узлы в трёх зонах доступности одного региона") {
   Deployment_Node(np_edge, "Вход", "L4 балансировщик, Kong Ingress Controller") {
-    Container(gw, "API Gateway", "Deployment + HPA", "по RPS, минимум 2 пода в каждой зоне")
+    Container(gw, "API Gateway", "Deployment + HPA", "по RPS, минимум 3 пода, по одному в каждой зоне")
   }
 
   Deployment_Node(np_search, "Пул Search", "отдельная группа узлов") {

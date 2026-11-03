@@ -22,15 +22,17 @@ rectangle "Notification\nуведомления" as notification <<generic>>
 
 rectangle "Провайдеры связи\ne-mail, SMS, push" as comms <<external>>
 
-' Синхронные вызовы
-chat --> listing : Customer/Supplier\nданные объявления при создании чата\nREST
-favorites --> listing : Customer/Supplier\nснимок объявления при добавлении\nREST
-report --> listing : Customer/Supplier\nснимок объявления как доказательство\nREST
-search --> listing : Customer/Supplier\nвыгрузка для перестроения индекса\n(только при восстановлении)\nREST
-report --> chat : Customer/Supplier\nсообщение как доказательство\nREST
+' Все стрелки идут от upstream к downstream.
+
+' Синхронные вызовы: данные запрашивает downstream
+listing --> chat : Customer/Supplier\nданные объявления при создании чата\nREST
+listing --> favorites : Customer/Supplier\nснимок объявления при добавлении\nREST
+listing --> report : Customer/Supplier\nснимок объявления как доказательство\nREST
+listing --> search : Customer/Supplier\nвыгрузка для перестроения индекса\n(только при восстановлении)\nREST
+chat --> report : Customer/Supplier\nсообщение как доказательство\nREST
 
 ' События
-listing ..> search : Customer/Supplier\nListingPublished, ListingUpdated, ListingSold,\nListingExpired, ListingHidden, CategoryChanged\nKafka
+listing ..> search : Customer/Supplier\nListingPublished, ListingUpdated, ListingPriceChanged,\nListingSold, ListingExpired, ListingArchived, ListingHidden,\nCategoryChanged\nKafka
 listing ..> favorites : Published Language\nListingPriceChanged, ListingSold, ListingExpired, ListingHidden\nKafka
 listing ..> notification : Conformist\nListingExpired, ListingHidden\nKafka
 favorites ..> notification : Conformist\nцена или статус избранного изменились\nKafka
@@ -38,18 +40,19 @@ chat ..> notification : Conformist\nMessageSent\nKafka
 report ..> listing : Published Language\nReportResolved: скрыть объявление\nKafka
 report ..> usr : Published Language\nReportResolved: заблокировать пользователя\nKafka
 report ..> notification : Conformist\nReportResolved\nKafka
-usr ..> listing : Open Host Service\nUserBlocked, UserDeleted\nKafka
-usr ..> chat : Open Host Service\nUserBlocked, UserDeleted\nKafka
+usr ..> listing : Open Host Service\nUserBlocked, UserUnblocked, UserDeleted\nKafka
+usr ..> chat : Open Host Service\nUserBlocked, UserUnblocked, UserDeleted\nKafka
 usr ..> favorites : Open Host Service\nUserDeleted\nKafka
 usr ..> notification : Open Host Service\nUserRegistered, UserContactChanged, UserDeleted\nKafka
 
 ' Внешние системы
-notification --> comms : ACL\nотправка сообщений\nHTTPS
+comms --> notification : ACL на стороне Notification\nотправка e-mail, SMS, push\nHTTPS
 
 legend right
-  Сплошная стрелка: синхронный вызов, от вызывающего к вызываемому
-  Пунктирная стрелка: событие Kafka, от издателя к подписчику
-  Стереотип: тип поддомена (core, supporting, generic) или внешняя система
+  Стрелки идут от upstream к downstream.
+  Сплошная стрелка: синхронный REST, данные запрашивает downstream.
+  Пунктирная стрелка: событие Kafka, издатель (upstream) и подписчик (downstream).
+  Стереотип: тип поддомена (core, supporting, generic) или внешняя система.
 endlegend
 
 @enduml

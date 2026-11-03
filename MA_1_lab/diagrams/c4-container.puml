@@ -32,7 +32,7 @@ System_Boundary(platform, "Сервис объявлений") {
   ContainerDb(chat_bus, "Chat Delivery Bus", "Redis pub/sub", "Доставка сообщения на под с соединением получателя")
 
   Container(report_svc, "Report Service", "REST API", "Жалобы, очередь модератора, решения")
-  ContainerDb(report_db, "Report DB", "PostgreSQL", "Report, ReportEvidence, outbox")
+  ContainerDb(report_db, "Report DB", "PostgreSQL", "Report, ReportEvidence, ModerationDecision, outbox")
 
   Container(notification_svc, "Notification Service", "Kafka consumer, REST API", "Формирование и доставка уведомлений")
   ContainerDb(notification_db, "Notification DB", "PostgreSQL", "Notification, NotificationPreference, DeviceToken, RecipientContact")
