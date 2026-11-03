@@ -1,0 +1,90 @@
+@startuml c4-container
+!include <C4/C4_Container>
+
+title C4, уровень 2: контейнеры сервиса объявлений
+
+Person(client, "Пользователь", "Покупатель или продавец, веб и мобильное приложение")
+Person(moderator, "Модератор", "Веб-интерфейс модерации")
+
+System_Ext(comms, "Провайдеры связи", "e-mail, SMS, push")
+System_Ext(storage, "Объектное хранилище и CDN", "Фотографии объявлений")
+
+System_Boundary(platform, "Сервис объявлений") {
+  Container(gw, "API Gateway", "Kong без БД", "Маршрутизация REST и WebSocket, лимиты запросов, токены не проверяет")
+
+  Container(user_svc, "User Service", "REST API", "Регистрация, вход, профили, выдача JWT, блокировки")
+  ContainerDb(user_db, "User DB", "PostgreSQL", "User, учётные данные, refresh-токены, outbox")
+
+  Container(listing_svc, "Listing Service", "REST API", "Объявления, фото, категории, жизненный цикл объявления")
+  ContainerDb(listing_db, "Listing DB", "PostgreSQL", "Listing, ListingPhoto, Category, проекция блокировок, outbox")
+
+  Boundary(search_group, "Search Service", "масштабируется отдельно") {
+    Container(search_api, "Search API", "REST API", "Полнотекстовый поиск, фильтры, подсказки")
+    Container(search_indexer, "Search Indexer", "Kafka consumer", "Обновляет индекс по событиям Listing")
+    ContainerDb(search_index, "Search Index", "OpenSearch", "SearchDocument: проекция объявлений")
+  }
+
+  Container(favorites_svc, "Favorites Service", "REST API, Kafka consumer", "Избранное пользователей, снимки объявлений")
+  ContainerDb(favorites_db, "Favorites DB", "PostgreSQL", "Favorite, ListingSnapshot, outbox")
+
+  Container(chat_svc, "Chat Service", "REST API, WebSocket", "Диалоги покупателя и продавца, сообщения")
+  ContainerDb(chat_db, "Chat DB", "PostgreSQL, партиции по chatId", "Chat, Message, проекция блокировок, outbox")
+  ContainerDb(chat_bus, "Chat Delivery Bus", "Redis pub/sub", "Доставка сообщения на под с соединением получателя")
+
+  Container(report_svc, "Report Service", "REST API", "Жалобы, очередь модератора, решения")
+  ContainerDb(report_db, "Report DB", "PostgreSQL", "Report, ReportEvidence, outbox")
+
+  Container(notification_svc, "Notification Service", "Kafka consumer, REST API", "Формирование и доставка уведомлений")
+  ContainerDb(notification_db, "Notification DB", "PostgreSQL", "Notification, NotificationPreference, DeviceToken, RecipientContact")
+
+  ContainerQueue(kafka, "Kafka", "Apache Kafka", "Доменные события")
+}
+
+Rel(client, gw, "Поиск, объявления, избранное, чат, жалобы", "HTTPS, WebSocket")
+Rel(moderator, gw, "Жалобы и решения", "HTTPS")
+Rel(client, storage, "Загружает и получает фото", "HTTPS")
+
+Rel(gw, user_svc, "Регистрация, вход, профили", "REST")
+Rel(gw, listing_svc, "Объявления и категории", "REST")
+Rel(gw, search_api, "Поиск", "REST")
+Rel(gw, favorites_svc, "Избранное", "REST")
+Rel(gw, chat_svc, "Чат", "REST, WebSocket")
+Rel(gw, report_svc, "Жалобы и модерация", "REST")
+Rel(gw, notification_svc, "История и настройки", "REST")
+
+Rel(chat_svc, listing_svc, "Получает данные объявления при создании чата", "REST")
+Rel(favorites_svc, listing_svc, "Получает снимок объявления при добавлении", "REST")
+Rel(report_svc, listing_svc, "Получает снимок объявления", "REST")
+Rel(report_svc, chat_svc, "Получает сообщение как доказательство", "REST")
+Rel(search_indexer, listing_svc, "Перестроение индекса", "REST")
+
+Rel(listing_svc, storage, "Создаёт ссылки для загрузки", "HTTPS")
+Rel(notification_svc, comms, "Отправляет сообщения", "HTTPS")
+
+Rel(user_svc, user_db, "Читает и пишет", "SQL")
+Rel(listing_svc, listing_db, "Читает и пишет", "SQL")
+Rel(search_api, search_index, "Ищет", "HTTPS")
+Rel(search_indexer, search_index, "Обновляет", "HTTPS")
+Rel(favorites_svc, favorites_db, "Читает и пишет", "SQL")
+Rel(chat_svc, chat_db, "Читает и пишет", "SQL")
+Rel(chat_svc, chat_bus, "Публикует и получает сообщения", "RESP")
+Rel(report_svc, report_db, "Читает и пишет", "SQL")
+Rel(notification_svc, notification_db, "Читает и пишет", "SQL")
+
+BiRel(user_svc, kafka, "Публикует user.events, читает report.events")
+BiRel(listing_svc, kafka, "Публикует listing.events, category.events; читает user.events, report.events")
+BiRel(favorites_svc, kafka, "Публикует favorites.events; читает listing.events, user.events")
+BiRel(chat_svc, kafka, "Публикует chat.events; читает user.events")
+Rel(report_svc, kafka, "Публикует report.events")
+Rel(kafka, search_indexer, "Доставляет listing.events, category.events")
+Rel(kafka, notification_svc, "Доставляет user.events, listing.events, favorites.events, chat.events, report.events")
+
+note as auth_note
+  <b>Аутентификация в каждом сервисе</b>
+  User Service выдаёт JWT и публикует открытые ключи (JWKS).
+  Каждый сервис сам проверяет подпись по кэшированным ключам и сам проверяет права.
+  Поиск, карточка объявления и категории доступны без токена.
+end note
+
+SHOW_LEGEND()
+@enduml

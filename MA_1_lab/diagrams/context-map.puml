@@ -1,0 +1,55 @@
+@startuml context-map
+
+title Context Map — сервис объявлений (вариант 1112)
+
+left to right direction
+skinparam shadowing false
+skinparam rectangle {
+  BackgroundColor<<core>> #FFE8CC
+  BackgroundColor<<supporting>> #DCEBFF
+  BackgroundColor<<generic>> #EDEDED
+  BackgroundColor<<external>> #FFFFFF
+  BorderColor<<external>> #888888
+}
+
+rectangle "Listing Catalog\nобъявления, категории" as listing <<core>>
+rectangle "Search\nпоиск" as search <<core>>
+rectangle "Chat\nчат" as chat <<core>>
+rectangle "User Management\nпользователи" as usr <<supporting>>
+rectangle "Favorites\nизбранное" as favorites <<supporting>>
+rectangle "Moderation\nжалобы" as report <<supporting>>
+rectangle "Notification\nуведомления" as notification <<generic>>
+
+rectangle "Провайдеры связи\ne-mail, SMS, push" as comms <<external>>
+
+' Синхронные вызовы
+chat --> listing : Customer/Supplier\nданные объявления при создании чата\nREST
+favorites --> listing : Customer/Supplier\nснимок объявления при добавлении\nREST
+report --> listing : Customer/Supplier\nснимок объявления как доказательство\nREST
+search --> listing : Customer/Supplier\nвыгрузка для перестроения индекса\n(только при восстановлении)\nREST
+report --> chat : Customer/Supplier\nсообщение как доказательство\nREST
+
+' События
+listing ..> search : Customer/Supplier\nListingPublished, ListingUpdated, ListingSold,\nListingExpired, ListingHidden, CategoryChanged\nKafka
+listing ..> favorites : Published Language\nListingPriceChanged, ListingSold, ListingExpired, ListingHidden\nKafka
+listing ..> notification : Conformist\nListingExpired, ListingHidden\nKafka
+favorites ..> notification : Conformist\nцена или статус избранного изменились\nKafka
+chat ..> notification : Conformist\nMessageSent\nKafka
+report ..> listing : Published Language\nReportResolved: скрыть объявление\nKafka
+report ..> usr : Published Language\nReportResolved: заблокировать пользователя\nKafka
+report ..> notification : Conformist\nReportResolved\nKafka
+usr ..> listing : Open Host Service\nUserBlocked, UserDeleted\nKafka
+usr ..> chat : Open Host Service\nUserBlocked, UserDeleted\nKafka
+usr ..> favorites : Open Host Service\nUserDeleted\nKafka
+usr ..> notification : Open Host Service\nUserRegistered, UserContactChanged, UserDeleted\nKafka
+
+' Внешние системы
+notification --> comms : ACL\nотправка сообщений\nHTTPS
+
+legend right
+  Сплошная стрелка: синхронный вызов, от вызывающего к вызываемому
+  Пунктирная стрелка: событие Kafka, от издателя к подписчику
+  Стереотип: тип поддомена (core, supporting, generic) или внешняя система
+endlegend
+
+@enduml

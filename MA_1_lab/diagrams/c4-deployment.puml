@@ -1,0 +1,64 @@
+@startuml c4-deployment
+!include <C4/C4_Deployment>
+
+title C4, развёртывание: Kubernetes в трёх зонах доступности
+
+Person(visitors, "Пользователи", "Покупатели, продавцы, модераторы")
+
+Deployment_Node(cdn, "Объектное хранилище и CDN", "внешний сервис") {
+  ContainerDb(media, "Фотографии", "S3-совместимое хранилище", "Файлы объявлений, раздаются через CDN")
+}
+
+Deployment_Node(k8s, "Kubernetes", "один кластер, узлы в трёх зонах доступности одного региона") {
+  Deployment_Node(np_edge, "Вход", "L4 балансировщик, Kong Ingress Controller") {
+    Container(gw, "API Gateway", "Deployment + HPA", "по RPS, минимум 2 пода в каждой зоне")
+  }
+
+  Deployment_Node(np_search, "Пул Search", "отдельная группа узлов") {
+    Container(search_api, "Search API", "Deployment + HPA", "по RPS и p99, минимум 3 пода")
+    Container(search_indexer, "Search Indexer", "Deployment + HPA", "по отставанию consumer group")
+    ContainerDb(os, "OpenSearch", "StatefulSet, data-узлы", "реплики добавляются при росте RPS")
+  }
+
+  Deployment_Node(np_apps, "Пул сервисов", "общая группа узлов") {
+    Container(listing_svc, "Listing Service", "Deployment + HPA", "по CPU и RPS")
+    Container(chat_svc, "Chat Service", "Deployment + HPA", "по числу WebSocket-соединений")
+    Container(favorites_svc, "Favorites Service", "Deployment + HPA", "по RPS")
+    Container(user_svc, "User Service", "Deployment + HPA", "по CPU, хеширование паролей")
+    Container(report_svc, "Report Service", "Deployment", "минимум 2 пода")
+    Container(notification_svc, "Notification Service", "Deployment + HPA", "по отставанию consumer group")
+  }
+
+  Deployment_Node(np_data, "Хранилища", "StatefulSet или управляемые сервисы") {
+    ContainerDb(pg, "PostgreSQL", "6 кластеров, по одному на сервис", "лидер и синхронная реплика в другой зоне, Patroni")
+    ContainerQueue(kafka, "Kafka", "3 брокера, RF=3", "по брокеру в каждой зоне")
+    ContainerDb(redis, "Redis", "master и реплики, Sentinel", "доставка сообщений чата")
+  }
+
+  Deployment_Node(np_mon, "Мониторинг", "Prometheus, Alertmanager, Grafana") {
+    Container(mon, "Метрики и алерты", "Prometheus Adapter для HPA", "собирает RPS, задержки и отставание consumer group со всех сервисов")
+  }
+}
+
+Rel(visitors, gw, "API и WebSocket", "HTTPS")
+Rel(visitors, media, "Фото", "HTTPS")
+Rel(gw, search_api, "Поиск", "REST")
+Rel(gw, listing_svc, "Объявления", "REST")
+Rel(gw, chat_svc, "Чат", "REST, WebSocket")
+Rel(gw, favorites_svc, "Избранное", "REST")
+Rel(gw, user_svc, "Профили и вход", "REST")
+Rel(gw, report_svc, "Жалобы", "REST")
+Rel(gw, notification_svc, "Уведомления", "REST")
+Rel(search_api, os, "Ищет", "HTTPS")
+Rel(search_indexer, os, "Обновляет", "HTTPS")
+Rel(chat_svc, redis, "Доставка сообщений", "RESP")
+
+note as data_note
+  <b>Хранилища и события</b>
+  Каждый сервис пишет только в свой кластер PostgreSQL
+  и обменивается событиями через Kafka.
+  Топики и подписчики: README, раздел 5.
+end note
+
+SHOW_LEGEND()
+@enduml
